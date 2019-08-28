@@ -7,38 +7,129 @@ const [width, height, vmin, vmax] = function() {
             h = (x.innerHeight|| e.clientHeight|| g.clientHeight);
     return [w, h, Math.min(w, h), Math.max(w, h)];
 }()
+let originX, originY, distance, arcs, fraction, offset;
+let bridges;
+let constructingBridge;
+let globalArcHighlights;
+let centersOfMass;
 
-function drawArcs ({ originX, originY, offset, gapSize, distance, arcs, highlightedArcs }) {
-    const fraction = TWO_PI / arcs;
-    offset = offset || 0;
+// --- Position calculators ---
+function getSynapsePosition(arcNo) {
+    return [originX + (distance * 0.4) * cos(offset + fraction * arcNo), originY + (distance * 0.4) * sin(offset + fraction * arcNo)];
+}
+
+function getCenterOfMassOfArc(arcNo) {
+    return [originX + distance / 2 * cos(offset + fraction * arcNo), originY + distance / 2 * sin(offset + fraction * arcNo)];
+}
+
+// --- drawing functions ---
+function drawArcs ({ gapSize, highlightedArcs }) {
+    const adjustedOffset = offset - PI / arcs;
     gapSize = gapSize || 0;
-    highlightedArcs = highlightedArcs || [];
+    highlightedArcs = highlightedArcs || {};
 
     for (let arcNo = 0; arcNo < arcs; arcNo++) {
-        if (highlightedArcs[arcNo]) {
-            stroke(255, 0, 0);
-        }
-        else {
-            stroke(0, 0, 0);
-        }
+        stroke(highlightedArcs[arcNo] ? 255 : 0, 0, 0);
 
         arc(originX, 
             originY, 
             distance, 
             distance, 
-            offset + fraction * arcNo + gapSize,
-            offset + fraction * (arcNo + 1) - gapSize);
+            adjustedOffset + fraction * arcNo + gapSize,
+            adjustedOffset + fraction * (arcNo + 1) - gapSize);
     }
     stroke(0, 0, 0);
 }
 
-function getCenterOfMassOfArc({ originX, originY, distance, offset, arcs, arcNo }) {
-    const fraction = TWO_PI / arcs;
-    return [originX + PI * distance * cos(offset + fraction * arcNo), originY + PI * distance * sin(offset + fraction * arcNo)];
+function drawSynapse({ arcNo, highlighted }) {
+    if (highlighted) {
+        stroke(255, 0, 0);
+    }
+    point(...getSynapsePosition(arcNo));
+    if (highlighted) {
+        stroke(0, 0, 0);
+    }
 }
 
-let globalArcHighlights;
-let centersOfMass;
+function drawConstructingBridge(synapseNo) {
+    stroke(200, 200, 0);
+    line(...getSynapsePosition(synapseNo), mouseX, mouseY);
+}
+
+function drawSynapseConnection(syn1, syn2) {
+    const synapsePos1 = getSynapsePosition(syn1);
+    const synapsePos2 = getSynapsePosition(syn2);
+    line(...synapsePos1, ...synapsePos2);
+}
+
+// --- fundamentals: Whole step, HalfStep ---
+function drawWholeStep(begginingAt) {
+    stroke(32, 201, 103);
+    drawSynapseConnection(begginingAt, (begginingAt + 2) % arcs);
+    return (begginingAt + 2) % arcs;
+}
+
+function drawHalfStep(begginingAt) {
+    stroke(89, 178, 194);
+    drawSynapseConnection(begginingAt, (begginingAt + 1) % arcs);
+    return (begginingAt + 1) % arcs;
+}
+
+// --- scales ---
+function drawMajorScale(begginingAt) {
+    // W W H W W W H
+    begginingAt = drawWholeStep(begginingAt);
+    begginingAt = drawWholeStep(begginingAt);
+    begginingAt = drawHalfStep(begginingAt);
+    begginingAt = drawWholeStep(begginingAt);
+    begginingAt = drawWholeStep(begginingAt);
+    begginingAt = drawWholeStep(begginingAt);
+    drawHalfStep(begginingAt);
+}
+
+function drawMinorScale(begginingAt) {
+    drawMajorScale((begginingAt + 15) % arcs);
+}
+
+// --- defined for p5 ---
+
+function setup() {
+    createCanvas(width, height);
+    originX = width / 2;
+    originY = height / 2;
+    distance = vmin * 0.8;
+    arcs = 12;
+    fraction = TWO_PI / arcs;
+    offset = 3 * PI / 2;
+    bridges = [];
+    constructingBridge = null;
+
+    globalArcHighlights = {};
+    centersOfMass = [...Array(12).keys()].map(arcNo => 
+        getCenterOfMassOfArc(arcNo))
+}
+
+function draw() {
+    clear();
+    strokeWeight(20);
+    strokeCap(SQUARE);
+    smooth();
+    noFill();
+    drawArcs({
+        gapSize: 0.03,
+        highlightedArcs: globalArcHighlights,
+    });
+    drawMinorScale(9);
+    stroke(0, 210, 210);
+    bridges.forEach(([syn1, syn2]) => drawSynapseConnection(syn1, syn2));
+    stroke(0, 0, 0);
+    for (let arcNo = 0; arcNo < 12; arcNo++) {
+        drawSynapse({ highlighted: globalArcHighlights[arcNo], arcNo, })
+    }
+    if (constructingBridge) {
+        drawConstructingBridge(constructingBridge);
+    }
+}
 
 function mouseMoved() {
     const [closestIndex, closestDistance] = centersOfMass.reduce(([bestIdx, bestDist], [x, y], idx) => {
@@ -46,7 +137,8 @@ function mouseMoved() {
         return distance < bestDist ? [idx, distance] : [bestIdx, bestDist];
     }, [-1, +Infinity]);
 
-    if (closestDistance < 1470) {
+    // If it's close enough, highlight
+    if (closestDistance < 71) {
         globalArcHighlights = {[closestIndex]: true};
     }
     else {
@@ -54,44 +146,21 @@ function mouseMoved() {
     }
 }
 
-
-
-function setup() {
-    createCanvas(width, height);
-    globalArcHighlights = {};
-    centersOfMass = [...Array(12).keys()].map(arcNo => 
-        getCenterOfMassOfArc({ originX: width / 2, 
-                               originY: height / 2,
-                               distance: vmin * 0.8,
-                               offset: 3 * PI / 2,
-                               arcs: 12,
-                               arcNo,
-                            }))
-}
-
-function draw() {
-    strokeWeight(20);
-    strokeCap(SQUARE);
-    smooth();
-    drawArcs({
-        originX: width / 2,
-        originY: height / 2,
-        distance: vmin * 0.8,
-        offset: 3 * PI / 2 - PI / 12,
-        arcs: 12,
-        gapSize: 0.03,
-        highlightedArcs: globalArcHighlights,
-    })
-    color(255, 255, 255);
-    for (let arcNo = 0; arcNo < 12; arcNo++) {
-        const [x, y] = getCenterOfMassOfArc({ 
-            originX: width / 2, 
-            originY: height / 2,
-            distance: vmin / 8,
-            offset: 3 * PI / 2,
-            arcs: 12,
-            arcNo,
-        })
-        point(x, y);
+function mouseClicked() {
+    const highlightedNotes = Object.keys(globalArcHighlights)
+    if (highlightedNotes.length === 0) {
+        return;
     }
+    const noteToConstruct = highlightedNotes[0];
+    if (constructingBridge === null) {
+        constructingBridge = noteToConstruct;
+        return;
+    }
+
+    if (constructingBridge === noteToConstruct) {
+        constructingBridge = null;
+        return;
+    }
+    bridges.push([constructingBridge, noteToConstruct]);
+    constructingBridge = null;
 }
