@@ -92,7 +92,6 @@ function drawMinorScale(begginingAt) {
 }
 
 // --- defined for p5 ---
-
 function setup() {
     createCanvas(width, height);
     originX = width / 2;
@@ -119,7 +118,7 @@ function draw() {
         gapSize: 0.03,
         highlightedArcs: globalArcHighlights,
     });
-    drawMinorScale(9);
+    drawMajorScale(0);
     stroke(0, 210, 210);
     bridges.forEach(([syn1, syn2]) => drawSynapseConnection(syn1, syn2));
     stroke(0, 0, 0);
@@ -162,5 +161,38 @@ function mouseClicked() {
         return;
     }
     bridges.push([constructingBridge, noteToConstruct]);
+    recalculateNotes();
     constructingBridge = null;
 }
+
+// --- Tone.js related ---
+const translationTable = ['C3', 'C#3', 'D3', 'D#3', 'E3', 'F3', 'F#3', 'G3', 'G#3', 'A3', 'A#3', 'B3'];
+let playingNotes = new Set();
+let synths = []
+
+function difference(notesToPlay, playingNotes) {
+    for (let note of playingNotes) {
+        notesToPlay.delete(note);
+    }    
+    return notesToPlay;
+}
+
+function recalculateNotes() {
+    const notesToPlay = new Set(
+                            bridges.reduce((acc, bridge) => [...acc, ...bridge.map(synapse => translationTable[synapse])], []));
+    const notesToAddToLoop = difference(notesToPlay, playingNotes);
+    for (let note of notesToAddToLoop) {
+        createLoop(note);
+    }
+}
+
+function createLoop(note) {
+    const synth = new Tone.Synth().toMaster();
+    synth.triggerAttack(note);
+    synths.push(synth);
+    playingNotes.add(note);
+}
+
+document.addEventListener('click', () => Tone.start());
+Tone.Transport.bpm.value = 120;
+Tone.Transport.start();
